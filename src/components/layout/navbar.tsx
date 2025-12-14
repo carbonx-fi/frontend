@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { motion } from "framer-motion";
+import { usePrivy, useLogin, useLogout, useWallets } from "@privy-io/react-auth";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -28,6 +28,7 @@ import {
   LogOut,
   Copy,
   ExternalLink,
+  User,
 } from "lucide-react";
 
 const navLinks = [
@@ -38,9 +39,13 @@ const navLinks = [
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
-  const { address, isConnected } = useAccount();
-  const { connect, connectors } = useConnect();
-  const { disconnect } = useDisconnect();
+  const { ready, authenticated, user } = usePrivy();
+  const { login } = useLogin();
+  const { logout } = useLogout();
+  const { wallets } = useWallets();
+
+  // Get the user's wallet address (embedded or external)
+  const address = wallets[0]?.address || user?.wallet?.address;
 
   const truncateAddress = (addr: string) => {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
@@ -50,6 +55,23 @@ export function Navbar() {
     if (address) {
       navigator.clipboard.writeText(address);
     }
+  };
+
+  // Get display name - email, social handle, or truncated address
+  const getDisplayName = () => {
+    if (user?.email?.address) {
+      return user.email.address.split("@")[0];
+    }
+    if (user?.google?.email) {
+      return user.google.email.split("@")[0];
+    }
+    if (user?.twitter?.username) {
+      return `@${user.twitter.username}`;
+    }
+    if (address) {
+      return truncateAddress(address);
+    }
+    return "Connected";
   };
 
   return (
@@ -92,57 +114,61 @@ export function Navbar() {
 
         {/* Right Side Actions */}
         <div className="flex items-center gap-3">
-          {/* Connect Wallet Button */}
-          {isConnected && address ? (
+          {/* Auth Button */}
+          {!ready ? (
+            <Button disabled variant="outline" className="gap-2">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              Loading...
+            </Button>
+          ) : authenticated ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="gap-2">
                   <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  {truncateAddress(address)}
+                  {getDisplayName()}
                   <ChevronDown className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem onClick={copyAddress}>
-                  <Copy className="h-4 w-4 mr-2" />
-                  Copy Address
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <a
-                    href={`https://sepolia.mantlescan.xyz/address/${address}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    View on Explorer
-                  </a>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => disconnect()} className="text-destructive">
+                {address && (
+                  <>
+                    <DropdownMenuItem onClick={copyAddress}>
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy Address
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <a
+                        href={`https://sepolia.mantlescan.xyz/address/${address}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        View on Explorer
+                      </a>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                {user?.email?.address && (
+                  <DropdownMenuItem disabled>
+                    <User className="h-4 w-4 mr-2" />
+                    {user.email.address}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={logout} className="text-destructive">
                   <LogOut className="h-4 w-4 mr-2" />
-                  Disconnect
+                  Sign Out
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button className="gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-lg shadow-emerald-500/25">
-                  <Wallet className="h-4 w-4" />
-                  Connect
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                {connectors.map((connector) => (
-                  <DropdownMenuItem
-                    key={connector.uid}
-                    onClick={() => connect({ connector })}
-                  >
-                    {connector.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button
+              onClick={login}
+              className="gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-lg shadow-emerald-500/25"
+            >
+              <Wallet className="h-4 w-4" />
+              Sign In
+            </Button>
           )}
 
           {/* Mobile Menu */}
