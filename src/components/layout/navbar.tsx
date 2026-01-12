@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { usePrivy, useLogin, useLogout, useWallets } from "@privy-io/react-auth";
 import { Button } from "@/components/ui/button";
@@ -29,12 +30,16 @@ import {
   Copy,
   ExternalLink,
   User,
+  Sparkles,
+  Building2,
 } from "lucide-react";
 
 const navLinks = [
   { href: "/trade", label: "Trade", icon: BarChart3 },
   { href: "/pools", label: "Pools", icon: Droplets },
   { href: "/guardian", label: "Guardian", icon: Shield },
+  { href: "/sanctuary", label: "Sanctuary", icon: Sparkles },
+  { href: "/corporate", label: "Corporate", icon: Building2 },
 ];
 
 export function Navbar() {
@@ -87,9 +92,14 @@ export function Navbar() {
           <motion.div
             whileHover={{ rotate: 360 }}
             transition={{ duration: 0.5 }}
-            className="p-2 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-lg shadow-emerald-500/25"
           >
-            <Leaf className="h-5 w-5 text-white" />
+            <Image
+              src="/logo.png"
+              alt="CarbonX Logo"
+              width={40}
+              height={40}
+              className="rounded-lg"
+            />
           </motion.div>
           <span className="font-bold text-xl tracking-tight">
             Carbon<span className="gradient-text">X</span>

@@ -1,12 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAccount } from "wagmi";
+import { formatEther } from "viem";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Shield,
   TreePine,
@@ -19,10 +27,24 @@ import {
   Check,
   Flame,
   Gift,
+  Waves,
+  Cpu,
+  Users,
+  Bird,
+  Loader2,
 } from "lucide-react";
+import {
+  useGuardian,
+  GuardianPath,
+  GUARDIAN_PATH_NAMES,
+  GUARDIAN_TIER_NAMES,
+} from "@/hooks/useGuardian";
+import { GuardianTier } from "@/config/contracts";
 
+// Tier configuration with thresholds matching the contract
 const tiers = [
   {
+    tier: GuardianTier.COMMON,
     name: "Common",
     requirement: 0,
     discount: 2,
@@ -31,6 +53,7 @@ const tiers = [
     textColor: "text-gray-500",
   },
   {
+    tier: GuardianTier.UNCOMMON,
     name: "Uncommon",
     requirement: 10,
     discount: 5,
@@ -39,6 +62,7 @@ const tiers = [
     textColor: "text-green-500",
   },
   {
+    tier: GuardianTier.RARE,
     name: "Rare",
     requirement: 50,
     discount: 10,
@@ -47,6 +71,7 @@ const tiers = [
     textColor: "text-blue-500",
   },
   {
+    tier: GuardianTier.EPIC,
     name: "Epic",
     requirement: 200,
     discount: 15,
@@ -55,12 +80,59 @@ const tiers = [
     textColor: "text-purple-500",
   },
   {
+    tier: GuardianTier.LEGENDARY,
     name: "Legendary",
     requirement: 500,
     discount: 20,
     color: "from-amber-400 to-amber-600",
     bgColor: "bg-amber-500",
     textColor: "text-amber-500",
+  },
+];
+
+// Path configuration with icons
+const paths = [
+  {
+    path: GuardianPath.OCEAN,
+    icon: Waves,
+    color: "from-blue-400 to-cyan-500",
+    bgColor: "bg-blue-500",
+    description: "Protect marine ecosystems",
+  },
+  {
+    path: GuardianPath.FOREST,
+    icon: TreePine,
+    color: "from-green-400 to-emerald-500",
+    bgColor: "bg-green-500",
+    description: "Preserve forests worldwide",
+  },
+  {
+    path: GuardianPath.ENERGY,
+    icon: Zap,
+    color: "from-yellow-400 to-orange-500",
+    bgColor: "bg-yellow-500",
+    description: "Support clean energy",
+  },
+  {
+    path: GuardianPath.TECH,
+    icon: Cpu,
+    color: "from-purple-400 to-violet-500",
+    bgColor: "bg-purple-500",
+    description: "Fund green technology",
+  },
+  {
+    path: GuardianPath.COMMUNITY,
+    icon: Users,
+    color: "from-pink-400 to-rose-500",
+    bgColor: "bg-pink-500",
+    description: "Empower local communities",
+  },
+  {
+    path: GuardianPath.WILDLIFE,
+    icon: Bird,
+    color: "from-amber-400 to-orange-500",
+    bgColor: "bg-amber-500",
+    description: "Save endangered species",
   },
 ];
 
@@ -87,7 +159,8 @@ const benefits = [
   },
 ];
 
-const leaderboard = [
+// Mock leaderboard (will be replaced with indexer data)
+const mockLeaderboard = [
   { rank: 1, name: "EcoWarrior.eth", retired: 2450, tier: "Legendary" },
   { rank: 2, name: "GreenFuture", retired: 1820, tier: "Legendary" },
   { rank: 3, name: "CarbonKing", retired: 890, tier: "Legendary" },
@@ -97,17 +170,53 @@ const leaderboard = [
 
 export default function GuardianPage() {
   const { address, isConnected } = useAccount();
-  const [hasGuardian] = useState(false); // Mock state
-  const [userRetired] = useState(125); // Mock user's retired carbon
-  const [userTier] = useState(2); // Rare tier
+  const {
+    guardianId,
+    guardian,
+    tierProgress,
+    feeReduction,
+    discount,
+    hasGuardian,
+    mintGuardian,
+    isPending,
+    isConfirming,
+    isConfirmed,
+    error,
+    refetch,
+  } = useGuardian();
 
-  const currentTier = tiers[userTier];
-  const nextTier = tiers[userTier + 1];
-  const progress = nextTier
-    ? ((userRetired - currentTier.requirement) /
-        (nextTier.requirement - currentTier.requirement)) *
-      100
-    : 100;
+  const [showPathModal, setShowPathModal] = useState(false);
+  const [selectedPath, setSelectedPath] = useState<GuardianPath | null>(null);
+
+  // Get current tier configuration
+  const currentTierConfig = guardian
+    ? tiers.find((t) => t.tier === guardian.tier) || tiers[0]
+    : tiers[0];
+
+  const nextTierConfig = guardian
+    ? tiers.find((t) => t.tier === (guardian.tier + 1))
+    : tiers[1];
+
+  // Format retired amount (stored as wei, display as tonnes)
+  const userRetired = guardian
+    ? Number(formatEther(guardian.totalRetired))
+    : 0;
+
+  // Calculate progress to next tier
+  const progress = tierProgress
+    ? Number(tierProgress.progress)
+    : 0;
+
+  // Handle mint
+  const handleMint = async () => {
+    if (selectedPath === null) return;
+    try {
+      await mintGuardian(selectedPath);
+      setShowPathModal(false);
+    } catch (e) {
+      console.error("Mint failed:", e);
+    }
+  };
 
   return (
     <div className="min-h-screen">
@@ -138,6 +247,7 @@ export default function GuardianPage() {
               <Button
                 size="lg"
                 className="gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-xl shadow-emerald-500/25"
+                disabled
               >
                 Connect Wallet to Mint
               </Button>
@@ -145,9 +255,20 @@ export default function GuardianPage() {
               <Button
                 size="lg"
                 className="gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-xl shadow-emerald-500/25"
+                onClick={() => setShowPathModal(true)}
+                disabled={isPending || isConfirming}
               >
-                <Shield className="h-5 w-5" />
-                Mint Your Guardian (Free)
+                {isPending || isConfirming ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    {isPending ? "Confirm in Wallet..." : "Minting..."}
+                  </>
+                ) : (
+                  <>
+                    <Shield className="h-5 w-5" />
+                    Mint Your Guardian (Free)
+                  </>
+                )}
               </Button>
             ) : null}
           </motion.div>
@@ -159,7 +280,7 @@ export default function GuardianPage() {
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             {/* User's Guardian Card */}
-            {isConnected && (
+            {isConnected && hasGuardian && guardian && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -169,7 +290,7 @@ export default function GuardianPage() {
                     <div className="grid md:grid-cols-2 min-h-[320px]">
                       {/* NFT Display */}
                       <div
-                        className={`p-6 md:p-8 bg-gradient-to-br ${currentTier.color} relative overflow-hidden flex items-center justify-center`}
+                        className={`p-6 md:p-8 bg-gradient-to-br ${currentTierConfig.color} relative overflow-hidden flex items-center justify-center`}
                       >
                         <div className="absolute inset-0 bg-black/20" />
                         <div className="relative flex flex-col items-center justify-center text-white">
@@ -180,10 +301,15 @@ export default function GuardianPage() {
                           >
                             <Shield className="h-12 w-12 md:h-16 md:w-16" />
                           </motion.div>
-                          <h2 className="text-xl md:text-2xl font-bold mb-1">Climate Guardian</h2>
-                          <Badge className="bg-white/20 text-white border-0">
-                            {currentTier.name}
+                          <h2 className="text-xl md:text-2xl font-bold mb-1">
+                            {guardian.nickname || "Climate Guardian"}
+                          </h2>
+                          <Badge className="bg-white/20 text-white border-0 mb-2">
+                            {GUARDIAN_TIER_NAMES[guardian.tier]}
                           </Badge>
+                          <p className="text-sm text-white/80">
+                            Path: {GUARDIAN_PATH_NAMES[guardian.path]}
+                          </p>
                         </div>
                       </div>
 
@@ -194,7 +320,9 @@ export default function GuardianPage() {
                             Total Carbon Retired
                           </h3>
                           <p className="text-3xl font-bold">
-                            {userRetired.toLocaleString()}{" "}
+                            {userRetired.toLocaleString(undefined, {
+                              maximumFractionDigits: 2,
+                            })}{" "}
                             <span className="text-lg text-muted-foreground">tonnes</span>
                           </p>
                         </div>
@@ -203,30 +331,36 @@ export default function GuardianPage() {
                           <h3 className="text-sm text-muted-foreground mb-1">
                             Current Fee Discount
                           </h3>
-                          <p className={`text-3xl font-bold ${currentTier.textColor}`}>
-                            {currentTier.discount}%
+                          <p className={`text-3xl font-bold ${currentTierConfig.textColor}`}>
+                            {discount ?? currentTierConfig.discount}%
                           </p>
                         </div>
 
-                        {nextTier && (
+                        {nextTierConfig && tierProgress && (
                           <div>
                             <div className="flex justify-between text-sm mb-2">
                               <span className="text-muted-foreground">
-                                Progress to {nextTier.name}
+                                Progress to {nextTierConfig.name}
                               </span>
                               <span className="font-medium">
-                                {userRetired}/{nextTier.requirement}t
+                                {progress.toFixed(0)}%
                               </span>
                             </div>
                             <Progress value={progress} className="h-3" />
                             <p className="text-xs text-muted-foreground mt-2">
-                              {nextTier.requirement - userRetired} more tonnes to unlock{" "}
-                              {nextTier.discount}% discount
+                              {Number(formatEther(tierProgress.amountToNext)).toLocaleString(
+                                undefined,
+                                { maximumFractionDigits: 0 }
+                              )}{" "}
+                              more tonnes to unlock {nextTierConfig.discount}% discount
                             </p>
                           </div>
                         )}
 
-                        <Button className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white">
+                        <Button
+                          className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white"
+                          onClick={() => (window.location.href = "/trade")}
+                        >
                           <Flame className="h-4 w-4 mr-2" />
                           Retire Carbon to Level Up
                         </Button>
@@ -235,6 +369,39 @@ export default function GuardianPage() {
                   </CardContent>
                 </Card>
               </motion.div>
+            )}
+
+            {/* No Guardian - Show CTA */}
+            {isConnected && !hasGuardian && (
+              <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+                <CardContent className="p-8 text-center">
+                  <div className="p-4 rounded-full bg-emerald-500/10 w-fit mx-auto mb-4">
+                    <Shield className="h-12 w-12 text-emerald-500" />
+                  </div>
+                  <h3 className="text-xl font-bold mb-2">No Guardian Yet</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Mint your free Guardian NFT to start earning discounts and tracking
+                    your climate impact.
+                  </p>
+                  <Button
+                    className="gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white"
+                    onClick={() => setShowPathModal(true)}
+                    disabled={isPending || isConfirming}
+                  >
+                    {isPending || isConfirming ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {isPending ? "Confirm in Wallet..." : "Minting..."}
+                      </>
+                    ) : (
+                      <>
+                        <Shield className="h-4 w-4" />
+                        Choose Your Path
+                      </>
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
             )}
 
             {/* Tier Progression */}
@@ -252,7 +419,11 @@ export default function GuardianPage() {
                     <motion.div
                       initial={{ width: 0 }}
                       animate={{
-                        width: `${(userTier / (tiers.length - 1)) * 100}%`,
+                        width: `${
+                          guardian
+                            ? (guardian.tier / (tiers.length - 1)) * 100
+                            : 0
+                        }%`,
                       }}
                       transition={{ duration: 1, delay: 0.5 }}
                       className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-full"
@@ -262,8 +433,8 @@ export default function GuardianPage() {
                   {/* Tier Nodes */}
                   <div className="flex justify-between relative px-0">
                     {tiers.map((tier, index) => {
-                      const isActive = index <= userTier;
-                      const isCurrent = index === userTier;
+                      const isActive = guardian ? index <= guardian.tier : false;
+                      const isCurrent = guardian ? index === guardian.tier : false;
 
                       return (
                         <motion.div
@@ -360,7 +531,7 @@ export default function GuardianPage() {
               </CardHeader>
               <CardContent className="pt-0">
                 <div className="space-y-2">
-                  {leaderboard.map((user, index) => (
+                  {mockLeaderboard.map((user, index) => (
                     <motion.div
                       key={user.name}
                       initial={{ opacity: 0, x: 20 }}
@@ -436,6 +607,77 @@ export default function GuardianPage() {
           </div>
         </div>
       </div>
+
+      {/* Path Selection Modal */}
+      <Dialog open={showPathModal} onOpenChange={setShowPathModal}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Choose Your Guardian Path</DialogTitle>
+            <DialogDescription>
+              Select a cause that resonates with you. This determines which
+              environmental zone you&apos;ll help restore in the Sanctuary.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 py-4">
+            {paths.map((p) => {
+              const PathIcon = p.icon;
+              const isSelected = selectedPath === p.path;
+
+              return (
+                <motion.button
+                  key={p.path}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setSelectedPath(p.path)}
+                  className={`p-4 rounded-xl border-2 text-left transition-all ${
+                    isSelected
+                      ? "border-emerald-500 bg-emerald-500/10"
+                      : "border-border hover:border-emerald-500/50"
+                  }`}
+                >
+                  <div
+                    className={`p-2 rounded-lg bg-gradient-to-br ${p.color} w-fit mb-2`}
+                  >
+                    <PathIcon className="h-5 w-5 text-white" />
+                  </div>
+                  <h4 className="font-semibold text-sm">
+                    {GUARDIAN_PATH_NAMES[p.path]}
+                  </h4>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {p.description}
+                  </p>
+                </motion.button>
+              );
+            })}
+          </div>
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setShowPathModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white"
+              disabled={selectedPath === null || isPending || isConfirming}
+              onClick={handleMint}
+            >
+              {isPending || isConfirming ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {isPending ? "Confirm..." : "Minting..."}
+                </>
+              ) : (
+                <>
+                  <Shield className="h-4 w-4" />
+                  Mint Guardian
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
