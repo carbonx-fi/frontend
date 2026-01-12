@@ -32,6 +32,7 @@ import {
   User,
   Sparkles,
   Building2,
+  FileCheck,
 } from "lucide-react";
 
 const navLinks = [
@@ -40,6 +41,7 @@ const navLinks = [
   { href: "/guardian", label: "Guardian", icon: Shield },
   { href: "/sanctuary", label: "Sanctuary", icon: Sparkles },
   { href: "/corporate", label: "Corporate", icon: Building2 },
+  { href: "/submit-project", label: "Submit", icon: FileCheck },
 ];
 
 export function Navbar() {
