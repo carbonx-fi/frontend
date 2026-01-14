@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
   webpack: (config) => {
     // Stub out Solana packages (we only use EVM)
     config.resolve.alias = {
