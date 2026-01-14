@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAccount } from "wagmi";
-import { formatEther, parseEther } from "viem";
+import { formatEther, parseEther, parseUnits, formatUnits } from "viem";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -58,18 +58,24 @@ export default function TradePage() {
     reserves,
     spotPrice,
     lpBalance,
+    usdcBalance,
+    usdcAllowance,
     getAmountOut,
     getAmountIn,
     getPriceImpact,
+    approveUsdc,
+    needsApproval,
     swapQuoteForCarbon,
     swapCarbonForQuote,
     addLiquidity,
     removeLiquidity,
     refetch,
+    reset,
     formatCarbon,
     formatQuote,
     parseCarbon,
     parseQuote,
+    QUOTE_DECIMALS,
     isPending,
     isConfirming,
     isConfirmed,
@@ -91,37 +97,51 @@ export default function TradePage() {
   const [retireNote, setRetireNote] = useState("");
   const [slippage, setSlippage] = useState(0.5); // 0.5% default slippage
 
-  // Calculate output amount based on input
-  const outputAmount = useMemo(() => {
-    if (!inputAmount || !reserves) return BigInt(0);
+  // Parse input amount based on direction
+  // Buy: input is USDC (6 decimals), output is carbon (18 decimals)
+  // Sell: input is carbon (18 decimals), output is USDC (6 decimals)
+  const parsedInputAmount = useMemo(() => {
+    if (!inputAmount) return BigInt(0);
     try {
-      const amountIn = parseEther(inputAmount);
       if (swapDirection === "buy") {
-        // Buying carbon with quote token (MNT)
-        return getAmountOut(amountIn, reserves.reserveQuote, reserves.reserveCarbon);
+        return parseUnits(inputAmount, QUOTE_DECIMALS); // USDC has 6 decimals
       } else {
-        // Selling carbon for quote token (MNT)
-        return getAmountOut(amountIn, reserves.reserveCarbon, reserves.reserveQuote);
+        return parseEther(inputAmount); // Carbon has 18 decimals
       }
     } catch {
       return BigInt(0);
     }
-  }, [inputAmount, reserves, swapDirection, getAmountOut]);
+  }, [inputAmount, swapDirection, QUOTE_DECIMALS]);
+
+  // Calculate output amount based on input
+  const outputAmount = useMemo(() => {
+    if (!inputAmount || !reserves || parsedInputAmount === BigInt(0)) return BigInt(0);
+    try {
+      if (swapDirection === "buy") {
+        // Buying carbon with USDC
+        return getAmountOut(parsedInputAmount, reserves.reserveQuote, reserves.reserveCarbon);
+      } else {
+        // Selling carbon for USDC
+        return getAmountOut(parsedInputAmount, reserves.reserveCarbon, reserves.reserveQuote);
+      }
+    } catch {
+      return BigInt(0);
+    }
+  }, [parsedInputAmount, reserves, swapDirection, getAmountOut, inputAmount]);
 
   // Calculate price impact
   const priceImpact = useMemo(() => {
-    if (!inputAmount || !reserves) return 0;
+    if (!inputAmount || !reserves || parsedInputAmount === BigInt(0)) return 0;
     try {
-      const amountIn = parseEther(inputAmount);
       if (swapDirection === "buy") {
-        return getPriceImpact(amountIn, reserves.reserveQuote, reserves.reserveCarbon);
+        return getPriceImpact(parsedInputAmount, reserves.reserveQuote, reserves.reserveCarbon);
       } else {
-        return getPriceImpact(amountIn, reserves.reserveCarbon, reserves.reserveQuote);
+        return getPriceImpact(parsedInputAmount, reserves.reserveCarbon, reserves.reserveQuote);
       }
     } catch {
       return 0;
     }
-  }, [inputAmount, reserves, swapDirection, getPriceImpact]);
+  }, [parsedInputAmount, reserves, swapDirection, getPriceImpact, inputAmount]);
 
   // Min amount out with slippage
   const minAmountOut = useMemo(() => {
@@ -129,15 +149,31 @@ export default function TradePage() {
     return (outputAmount * slippageMultiplier) / BigInt(1000);
   }, [outputAmount, slippage]);
 
-  // Execute swap
-  const handleSwap = async () => {
+  // Check if we need to approve USDC
+  const requiresApproval = useMemo(() => {
+    if (swapDirection !== "buy" || parsedInputAmount === BigInt(0)) return false;
+    return needsApproval(parsedInputAmount);
+  }, [swapDirection, parsedInputAmount, needsApproval]);
+
+  // Handle approval
+  const handleApprove = async () => {
     if (!inputAmount) return;
     try {
-      const amountIn = parseEther(inputAmount);
+      // Approve a large amount to avoid repeated approvals
+      await approveUsdc(parsedInputAmount * BigInt(10));
+    } catch (e) {
+      console.error("Approval failed:", e);
+    }
+  };
+
+  // Execute swap
+  const handleSwap = async () => {
+    if (!inputAmount || parsedInputAmount === BigInt(0)) return;
+    try {
       if (swapDirection === "buy") {
-        await swapQuoteForCarbon(amountIn, minAmountOut);
+        await swapQuoteForCarbon(parsedInputAmount, minAmountOut);
       } else {
-        await swapCarbonForQuote(amountIn, minAmountOut);
+        await swapCarbonForQuote(parsedInputAmount, minAmountOut);
       }
     } catch (e) {
       console.error("Swap failed:", e);
@@ -166,9 +202,11 @@ export default function TradePage() {
   };
 
   // Format spot price for display
+  // Spot price is (reserveQuote * 1e18) / reserveCarbon
+  // Since USDC has 6 decimals, divide by 1e6 to get the dollar value
   const formattedSpotPrice = spotPrice
-    ? Number(formatEther(spotPrice)).toFixed(6)
-    : "0.000000";
+    ? Number(formatUnits(spotPrice, QUOTE_DECIMALS)).toFixed(2)
+    : "0.00";
 
   return (
     <div className="min-h-screen bg-background">
@@ -188,11 +226,11 @@ export default function TradePage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h1 className="text-xl font-bold">Forest Carbon 2024</h1>
-                    <Badge variant="secondary">FOREST/MNT</Badge>
+                    <Badge variant="secondary">FOREST/USDC</Badge>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <span className="text-2xl font-bold">
-                      {formattedSpotPrice} MNT
+                      ${formattedSpotPrice}
                     </span>
                     <span className="flex items-center text-emerald-500">
                       <TrendingUp className="h-4 w-4 mr-1" />
@@ -218,15 +256,15 @@ export default function TradePage() {
                 </p>
               </div>
               <div>
-                <span className="text-muted-foreground">MNT Reserve</span>
+                <span className="text-muted-foreground">USDC Reserve</span>
                 <p className="font-semibold">
                   {reserves
-                    ? Number(formatEther(reserves.reserveQuote)).toLocaleString(
+                    ? Number(formatUnits(reserves.reserveQuote, 6)).toLocaleString(
                         undefined,
                         { maximumFractionDigits: 2 }
                       )
                     : "0"}{" "}
-                  MNT
+                  USDC
                 </p>
               </div>
               <div>
@@ -288,7 +326,7 @@ export default function TradePage() {
                       />
                       <div className="absolute right-4 top-1/2 -translate-y-1/2">
                         <Badge variant="secondary" className="text-base px-3 py-1">
-                          {swapDirection === "buy" ? "MNT" : "CARBON"}
+                          {swapDirection === "buy" ? "USDC" : "CARBON"}
                         </Badge>
                       </div>
                     </div>
@@ -319,7 +357,9 @@ export default function TradePage() {
                         readOnly
                         value={
                           outputAmount > BigInt(0)
-                            ? Number(formatEther(outputAmount)).toFixed(6)
+                            ? swapDirection === "buy"
+                              ? Number(formatEther(outputAmount)).toFixed(6) // Carbon out (18 decimals)
+                              : Number(formatUnits(outputAmount, QUOTE_DECIMALS)).toFixed(2) // USDC out (6 decimals)
                             : ""
                         }
                         placeholder="0.0"
@@ -327,7 +367,7 @@ export default function TradePage() {
                       />
                       <div className="absolute right-4 top-1/2 -translate-y-1/2">
                         <Badge variant="secondary" className="text-base px-3 py-1">
-                          {swapDirection === "buy" ? "CARBON" : "MNT"}
+                          {swapDirection === "buy" ? "CARBON" : "USDC"}
                         </Badge>
                       </div>
                     </div>
@@ -343,9 +383,7 @@ export default function TradePage() {
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Rate</span>
                         <span>
-                          1 {swapDirection === "buy" ? "CARBON" : "MNT"} ={" "}
-                          {formattedSpotPrice}{" "}
-                          {swapDirection === "buy" ? "MNT" : "CARBON"}
+                          1 CARBON = ${formattedSpotPrice}
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -370,8 +408,9 @@ export default function TradePage() {
                           Min. Received ({slippage}% slippage)
                         </span>
                         <span>
-                          {Number(formatEther(minAmountOut)).toFixed(6)}{" "}
-                          {swapDirection === "buy" ? "CARBON" : "MNT"}
+                          {swapDirection === "buy"
+                            ? `${Number(formatEther(minAmountOut)).toFixed(6)} CARBON`
+                            : `$${Number(formatUnits(minAmountOut, QUOTE_DECIMALS)).toFixed(2)}`}
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -401,33 +440,55 @@ export default function TradePage() {
                     </div>
                   )}
 
-                  {/* Submit Button */}
-                  <Button
-                    className="w-full h-14 text-lg bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white"
-                    disabled={
-                      !isConnected ||
-                      !inputAmount ||
-                      outputAmount <= BigInt(0) ||
-                      isPending ||
-                      isConfirming
-                    }
-                    onClick={handleSwap}
-                  >
-                    {!isConnected ? (
-                      "Connect Wallet"
-                    ) : isPending || isConfirming ? (
-                      <>
-                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                        {isPending ? "Confirm in Wallet..." : "Swapping..."}
-                      </>
-                    ) : !inputAmount ? (
-                      "Enter Amount"
-                    ) : (
-                      <>
-                        {swapDirection === "buy" ? "Buy" : "Sell"} Carbon
-                      </>
-                    )}
-                  </Button>
+                  {/* Submit Button - Approve or Swap */}
+                  {requiresApproval ? (
+                    <Button
+                      className="w-full h-14 text-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white"
+                      disabled={
+                        !isConnected ||
+                        !inputAmount ||
+                        isPending ||
+                        isConfirming
+                      }
+                      onClick={handleApprove}
+                    >
+                      {isPending || isConfirming ? (
+                        <>
+                          <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                          Approving USDC...
+                        </>
+                      ) : (
+                        "Approve USDC"
+                      )}
+                    </Button>
+                  ) : (
+                    <Button
+                      className="w-full h-14 text-lg bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white"
+                      disabled={
+                        !isConnected ||
+                        !inputAmount ||
+                        outputAmount <= BigInt(0) ||
+                        isPending ||
+                        isConfirming
+                      }
+                      onClick={handleSwap}
+                    >
+                      {!isConnected ? (
+                        "Connect Wallet"
+                      ) : isPending || isConfirming ? (
+                        <>
+                          <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                          {isPending ? "Confirm in Wallet..." : "Swapping..."}
+                        </>
+                      ) : !inputAmount ? (
+                        "Enter Amount"
+                      ) : (
+                        <>
+                          {swapDirection === "buy" ? "Buy" : "Sell"} Carbon
+                        </>
+                      )}
+                    </Button>
+                  )}
 
                   {isConfirmed && (
                     <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-sm">
