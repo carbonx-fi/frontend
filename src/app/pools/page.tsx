@@ -148,13 +148,21 @@ export default function PoolsPage() {
             animate={{ opacity: 1, y: 0 }}
             className="max-w-3xl"
           >
-            <Badge
-              variant="secondary"
-              className="mb-4 bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-            >
-              <Droplets className="w-3.5 h-3.5 mr-2" />
-              Automated Market Maker
-            </Badge>
+            <div className="flex gap-2 mb-4">
+              <Badge
+                variant="secondary"
+                className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+              >
+                <Droplets className="w-3.5 h-3.5 mr-2" />
+                Automated Market Maker
+              </Badge>
+              <Badge
+                variant="secondary"
+                className="bg-amber-500/10 text-amber-500 border-amber-500/20"
+              >
+                Preview Data
+              </Badge>
+            </div>
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
               Carbon Liquidity Pools
             </h1>
